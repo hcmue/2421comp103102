@@ -26,6 +26,25 @@ def read_student_data():
 @app.get("/students")
 def get_students():
     return read_student_data()
+
 @app.get("/students/{id}")
 def get_student(id: int):
+    pass
+
+from pydantic import BaseModel
+class Student(BaseModel):
+    id: int
+    name: str
+    gpa: float
+
+@app.post("/students")
+def add_student(model: Student):
+    pass
+
+@app.put("/students/{id}")
+def update_student(id: int):
+    pass
+
+@app.delete("/students/{id}")
+def delete_student(id: int):
     pass
