@@ -1,6 +1,8 @@
 from typing import Union
 from fastapi import FastAPI
 import json
+from pydantic import BaseModel
+from typing import Optional
 
 app = FastAPI()
 
@@ -24,14 +26,26 @@ def read_student_data():
         return []
     
 @app.get("/students")
-def get_students():
-    return read_student_data()
+def get_students(q: Optional[str] = None):
+     if q is None:
+        return read_student_data()
+     else:
+        return list(filter(lambda x: x["name"].find(q) > -1,
+                             read_student_data()))  
+
 
 @app.get("/students/{id}")
 def get_student(id: int):
-    pass
+    data = read_student_data()
+    for item in data:
+        if item["id"] == id:
+            print(item)
+            return {
+                "success": True, "data": item
+            }
+    return { "success": False, "message": f"Not found student {id}"}
 
-from pydantic import BaseModel
+
 class Student(BaseModel):
     id: int
     name: str

@@ -1,0 +1,11 @@
+[
+    {
+        "id": 1, "name": "Tèo Trần", "gpa": 8.8
+    },
+    {
+        "id": 2, "name": "Ly Lê", "gpa": 9.2
+    }    ,
+    {
+        "id": 3, "name": "Lê Trung", "gpa": 9.2
+    }
+]
