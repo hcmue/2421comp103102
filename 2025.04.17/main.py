@@ -1,8 +1,8 @@
-from fastapi import FastAPI, Depends, Query, HTTPException, status
+from fastapi import FastAPI, Depends, Query, HTTPException, status, Security
 from sqlmodel import Field, Session, SQLModel, create_engine, select
 from typing import Annotated
 import jwt
-from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm, SecurityScopes
 from pydantic import BaseModel, ValidationError
 from jwt.exceptions import InvalidTokenError
 from passlib.context import CryptContext
@@ -129,7 +129,7 @@ def read_user(user_id: int, session: SessionDep) -> User:
     return user
 
 @app.delete("/users/{user_id}", tags=["user"])
-def delete_user(user_id: int, session: SessionDep):
+def delete_user(user_id: int, session: SessionDep, token: Annotated[str, Depends(oauth2_scheme)]):
     user = session.get(User, user_id)
     if not user:
         raise HTTPException(
@@ -143,8 +143,16 @@ def delete_user(user_id: int, session: SessionDep):
     except Exception as ex:
         print(ex)
         return {"success": False}
-    
 
+
+def get_user(session: SessionDep, username: str):
+    users = session.exec(select(User)).all() # should optimize
+    for u in users:
+        if u.username == username:
+            return u
+    return None
+
+                        
 # hàm xác thực người dùng:
 def authenticate_user(session: SessionDep, username: str, password: str):
     users = session.exec(select(User)).all() # should optimize
@@ -190,3 +198,52 @@ async def login_for_access_token(
         data={"sub": user.username}, expires_delta=access_token_expires
     )
     return Token(access_token=access_token, token_type="bearer")
+
+
+async def get_current_user(
+    session: SessionDep,
+    security_scopes: SecurityScopes,
+    token: Annotated[str, Depends(oauth2_scheme)]
+):
+    if security_scopes.scopes:
+        authenticate_value = f'Bearer scope="{security_scopes.scope_str}"'
+    else:
+        authenticate_value = "Bearer"
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate credentials",
+        headers={"WWW-Authenticate": authenticate_value},
+    )
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        username = payload.get("sub")
+        if username is None:
+            raise credentials_exception
+        token_scopes = payload.get("scopes", [])
+        token_data = TokenData(scopes=token_scopes, username=username)
+    except (InvalidTokenError, ValidationError):
+        raise credentials_exception
+    
+    user = get_user(session, username=token_data.username)
+    if user is None:
+        raise credentials_exception
+    for scope in security_scopes.scopes:
+        if scope not in token_data.scopes:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Not enough permissions",
+                headers={"WWW-Authenticate": authenticate_value},
+            )
+    return user
+
+async def get_current_active_user(
+    current_user: Annotated[User, Security(get_current_user, scopes=["me"])],
+):
+    if current_user.is_active is False:
+        raise HTTPException(status_code=400, detail="Inactive user")
+    return current_user
+
+@app.get("/status/")
+async def read_system_status(current_user: Annotated[User, Depends(get_current_user)]):
+    print(current_user)
+    return {"status": "ok"}
