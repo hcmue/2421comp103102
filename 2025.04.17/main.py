@@ -6,6 +6,7 @@ from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from pydantic import BaseModel, ValidationError
 from jwt.exceptions import InvalidTokenError
 from passlib.context import CryptContext
+from datetime import datetime, timedelta, timezone
 
 app = FastAPI()
 
@@ -142,3 +143,50 @@ def delete_user(user_id: int, session: SessionDep):
     except Exception as ex:
         print(ex)
         return {"success": False}
+    
+
+# hàm xác thực người dùng:
+def authenticate_user(session: SessionDep, username: str, password: str):
+    users = session.exec(select(User)).all() # should optimize
+    # Check username
+    user = None
+    for u in users:
+        if u.username == username:
+            user = u
+            break
+    if not user:
+        return False
+    if not verify_password(password, user.password):
+        return False
+    return user
+
+def create_access_token(data: dict, expires_delta: timedelta | None = None):
+    to_encode = data.copy()
+    if expires_delta:
+        expire = datetime.now(timezone.utc) + expires_delta
+    else:
+        expire = datetime.now(timezone.utc) + timedelta(minutes=15)
+    to_encode.update({"exp": expire})
+    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    return encoded_jwt
+
+
+@app.post("/token")
+async def login_for_access_token(
+    form_data: Annotated[OAuth2PasswordRequestForm, Depends()],
+    session: SessionDep
+) -> Token:
+    user = authenticate_user(
+        session, form_data.username, form_data.password
+    )
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect username or password",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token = create_access_token(
+        data={"sub": user.username}, expires_delta=access_token_expires
+    )
+    return Token(access_token=access_token, token_type="bearer")
