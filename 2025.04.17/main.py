@@ -1,11 +1,48 @@
-from fastapi import FastAPI, Depends, Query, HTTPException
+from fastapi import FastAPI, Depends, Query, HTTPException, status
 from sqlmodel import Field, Session, SQLModel, create_engine, select
 from typing import Annotated
+import jwt
+from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+from pydantic import BaseModel, ValidationError
+from jwt.exceptions import InvalidTokenError
+from passlib.context import CryptContext
 
 app = FastAPI()
 
 engine = create_engine("mysql+pymysql://root:@localhost/2421comp103102")
 
+# to get a string like this run:
+# openssl rand -hex 32
+SECRET_KEY = "09d25e094faa6ca2556c818166b7a9563b93f7099f6f0f4caa6cf63b88e8d3e7"
+ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_MINUTES = 30
+
+class Token(BaseModel):
+    access_token: str
+    token_type: str
+
+class TokenData(BaseModel):
+    username: str | None = None
+    scopes: list[str] = []
+
+class Customer(BaseModel):    
+    username: str
+    email: str | None = None
+    full_name: str | None = None
+    disabled: bool | None = None
+
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+oauth2_scheme = OAuth2PasswordBearer(
+    tokenUrl="token",
+    scopes={"me": "Read information about the current user.", "items": "Read items."},
+)
+
+def verify_password(plain_password, hashed_password):
+    return pwd_context.verify(plain_password, hashed_password)
+
+def get_password_hash(password):
+    return pwd_context.hash(password)
 
 #########Định nghĩa các model ứng với các bảng trong DB
 class User(SQLModel, table=True):    
@@ -47,6 +84,9 @@ def root():
 
 @app.post("/users/", tags=["user"])
 def create_user(model: User, session: SessionDep) -> User:
+    # Mã hóa pass trước khi lưu
+    model.password = get_password_hash(model.password)
+    print(model)
     session.add(model)
     session.commit()
     session.refresh(model)
